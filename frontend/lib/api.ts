@@ -90,14 +90,21 @@ function enterDemoMode() {
 // How long to wait for the API before falling back to the seeded demo.
 const API_TIMEOUT_MS = 4000;
 
+// Public demo key for the write endpoints (create / run / publish). The backend
+// only checks it when REWIND_API_KEY is set there; reads ignore it. Sending it
+// on every request is harmless and keeps the client simple.
+const API_KEY = process.env.NEXT_PUBLIC_REWIND_API_KEY ?? "";
+
 class ApiError extends Error {}
 
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
   try {
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (API_KEY) headers["X-API-Key"] = API_KEY;
     const res = await fetch(`${BASE}${path}`, {
-      headers: { "Content-Type": "application/json" },
+      headers,
       cache: "no-store",
       signal: controller.signal,
       ...init,

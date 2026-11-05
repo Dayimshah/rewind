@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
 from rewind import orchestrator as orch
@@ -75,6 +75,22 @@ app.add_middleware(
 )
 
 
+# --- auth on mutating endpoints --------------------------------------------
+# Writes (create / run / publish) require an X-API-Key header matching
+# REWIND_API_KEY. Reads and the /plan preview stay open so the demo UI works
+# without a key. If REWIND_API_KEY is unset (local dev, tests), auth is a no-op.
+from fastapi import Header  # noqa: E402
+
+_API_KEY = _os.environ.get("REWIND_API_KEY", "")
+
+
+async def require_api_key(x_api_key: str | None = Header(default=None)) -> None:
+    if not _API_KEY:
+        return  # auth disabled (no key configured) — local/dev/tests
+    if x_api_key != _API_KEY:
+        raise HTTPException(status_code=401, detail="missing or invalid API key")
+
+
 def _plan_out(plan: ScopePlan) -> PlanOut:
     return PlanOut(
         table=plan.table,
@@ -115,7 +131,8 @@ async def preview_plan(req: PlanPreviewRequest) -> PlanOut:
     return _plan_out(plan)
 
 
-@app.post("/backfills", response_model=CreateBackfillResponse)
+@app.post("/backfills", response_model=CreateBackfillResponse,
+          dependencies=[Depends(require_api_key)])
 async def create_backfill(req: CreateBackfillRequest) -> CreateBackfillResponse:
     db: Database = app.state.db
     try:
@@ -138,7 +155,8 @@ async def get_backfill(backfill_id: int) -> dict:
         raise HTTPException(status_code=404, detail=str(e))
 
 
-@app.post("/backfills/{backfill_id}/run", response_model=StatusResponse)
+@app.post("/backfills/{backfill_id}/run", response_model=StatusResponse,
+          dependencies=[Depends(require_api_key)])
 async def run_backfill(backfill_id: int, req: RunRequest | None = None) -> StatusResponse:
     db: Database = app.state.db
     req = req or RunRequest()
@@ -153,7 +171,8 @@ async def run_backfill(backfill_id: int, req: RunRequest | None = None) -> Statu
     return StatusResponse(status=status)
 
 
-@app.post("/backfills/{backfill_id}/publish", response_model=StatusResponse)
+@app.post("/backfills/{backfill_id}/publish", response_model=StatusResponse,
+          dependencies=[Depends(require_api_key)])
 async def publish_backfill(backfill_id: int) -> StatusResponse:
     db: Database = app.state.db
     try:

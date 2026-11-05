@@ -25,10 +25,16 @@ services:
         value: "1"
       - key: SEED_ON_START
         value: "1"
-      # Allow the Vercel frontend to call this API. Set to your Vercel URL,
-      # or "*" for a fully public demo. (Comma-separate multiple origins.)
+      # Allow the Vercel frontend to call this API. Once you know your Vercel
+      # URL, set this to it (e.g. https://rewind.vercel.app) to lock CORS down.
+      # "*" is fine for an open public demo. (Comma-separate multiple origins.)
       - key: CORS_ORIGINS
         value: "*"
+      # Protects the mutating endpoints (create / run / publish). Reads + /plan
+      # stay open. Generate a random value in the Render dashboard (sync:false
+      # means Render prompts you for it instead of committing it to the repo).
+      - key: REWIND_API_KEY
+        sync: false
 
 databases:
   - name: rewind-db
