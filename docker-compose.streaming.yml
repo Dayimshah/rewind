@@ -1,0 +1,104 @@
+# Rewind — Phase 2 streaming overlay.
+#
+# Adds Kafka (KRaft, single broker), Kafka Connect with the Debezium Postgres
+# connector, and Kafka-UI. Run alongside the base stack:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.streaming.yml up -d
+#
+# The base Postgres already runs with wal_level=logical so Debezium can perform
+# logical decoding of the control-plane tables (backfills, partition_tasks).
+services:
+  kafka:
+    image: confluentinc/cp-kafka:7.7.1
+    container_name: rewind-kafka
+    ports:
+      - "${KAFKA_PORT:-9092}:9092"
+    environment:
+      # Single-node KRaft (no ZooKeeper).
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: "broker,controller"
+      KAFKA_CONTROLLER_QUORUM_VOTERS: "1@kafka:29093"
+      KAFKA_LISTENERS: "PLAINTEXT://0.0.0.0:29092,CONTROLLER://0.0.0.0:29093,EXTERNAL://0.0.0.0:9092"
+      KAFKA_ADVERTISED_LISTENERS: "PLAINTEXT://kafka:29092,EXTERNAL://localhost:9092"
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: "CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,EXTERNAL:PLAINTEXT"
+      KAFKA_INTER_BROKER_LISTENER_NAME: "PLAINTEXT"
+      KAFKA_CONTROLLER_LISTENER_NAMES: "CONTROLLER"
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      CLUSTER_ID: "rewind-kraft-cluster-0001"
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-topics --bootstrap-server localhost:9092 --list || exit 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 12
+
+  connect:
+    image: debezium/connect:2.7.3.Final
+    container_name: rewind-connect
+    ports:
+      - "${CONNECT_PORT:-8083}:8083"
+    environment:
+      BOOTSTRAP_SERVERS: "kafka:29092"
+      GROUP_ID: "rewind-connect"
+      CONFIG_STORAGE_TOPIC: "connect_configs"
+      OFFSET_STORAGE_TOPIC: "connect_offsets"
+      STATUS_STORAGE_TOPIC: "connect_statuses"
+      CONFIG_STORAGE_REPLICATION_FACTOR: 1
+      OFFSET_STORAGE_REPLICATION_FACTOR: 1
+      STATUS_STORAGE_REPLICATION_FACTOR: 1
+      KEY_CONVERTER: "org.apache.kafka.connect.json.JsonConverter"
+      VALUE_CONVERTER: "org.apache.kafka.connect.json.JsonConverter"
+      CONNECT_KEY_CONVERTER_SCHEMAS_ENABLE: "false"
+      CONNECT_VALUE_CONVERTER_SCHEMAS_ENABLE: "false"
+    depends_on:
+      kafka:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8083/ || exit 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 12
+
+  kafka-ui:
+    image: provectuslabs/kafka-ui:v0.7.2
+    container_name: rewind-kafka-ui
+    ports:
+      - "${KAFKA_UI_PORT:-8085}:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: "rewind"
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: "kafka:29092"
+      KAFKA_CLUSTERS_0_KAFKACONNECT_0_NAME: "connect"
+      KAFKA_CLUSTERS_0_KAFKACONNECT_0_ADDRESS: "http://connect:8083"
+      DYNAMIC_CONFIG_ENABLED: "true"
+    depends_on:
+      kafka:
+        condition: service_healthy
+
+  # Airflow (standalone: own metadata DB + scheduler + webserver in one
+  # container). Wraps the backfill lifecycle as the rewind_backfill DAG, which
+  # calls the Rewind API over HTTP. UI at http://localhost:8088 (admin/admin).
+  airflow:
+    image: apache/airflow:2.10.3
+    container_name: rewind-airflow
+    command: ["bash", "-lc", "airflow standalone"]
+    ports:
+      - "${AIRFLOW_PORT:-8088}:8080"
+    environment:
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+      # SequentialExecutor works with the bundled SQLite metadata DB, which is
+      # all a single sequential demo DAG needs. (LocalExecutor would require a
+      # Postgres/MySQL metadata DB.) The backfill tasks run in order anyway.
+      AIRFLOW__CORE__EXECUTOR: "SequentialExecutor"
+      _AIRFLOW_WWW_USER_USERNAME: "admin"
+      _AIRFLOW_WWW_USER_PASSWORD: "admin"
+      # The DAG calls the Rewind API by its compose service name.
+      REWIND_API: "http://api:8010"
+    volumes:
+      - ./airflow/dags:/opt/airflow/dags
+      - rewind_airflow_data:/opt/airflow
+
+volumes:
+  rewind_airflow_data:

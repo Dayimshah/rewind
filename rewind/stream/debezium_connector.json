@@ -1,0 +1,23 @@
+{
+  "name": "rewind-control-plane",
+  "config": {
+    "connector.class": "io.debezium.connector.postgresql.PostgresConnector",
+    "tasks.max": "1",
+    "database.hostname": "postgres",
+    "database.port": "5432",
+    "database.user": "rewind",
+    "database.password": "rewind_dev",
+    "database.dbname": "rewind",
+    "topic.prefix": "rewind",
+    "plugin.name": "pgoutput",
+    "slot.name": "rewind_cdc",
+    "publication.name": "rewind_cdc_pub",
+    "table.include.list": "public.backfills,public.partition_tasks",
+    "tombstones.on.delete": "false",
+    "decimal.handling.mode": "double",
+    "key.converter": "org.apache.kafka.connect.json.JsonConverter",
+    "key.converter.schemas.enable": "false",
+    "value.converter": "org.apache.kafka.connect.json.JsonConverter",
+    "value.converter.schemas.enable": "false"
+  }
+}
