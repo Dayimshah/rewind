@@ -1,0 +1,28 @@
+# --- Python ---
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.pytest_cache/
+.venv/
+venv/
+
+# --- Secrets / env ---
+.env
+.env.*
+!.env.example
+
+# --- Data plane (regenerable; includes Iceberg warehouse at data/iceberg) ---
+data/
+*.duckdb
+*.parquet
+
+# --- Node / Next (frontend) ---
+node_modules/
+.next/
+out/
+
+# --- OS / editor junk ---
+.DS_Store
+Thumbs.db
+*.swp
