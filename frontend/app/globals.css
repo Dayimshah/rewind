@@ -6,6 +6,22 @@
   color-scheme: dark;
 }
 
-body {
-  @apply bg-neutral-950 text-neutral-100;
+html {
+  scroll-behavior: smooth;
 }
+
+body {
+  @apply bg-[#0a0b0d] text-neutral-200 antialiased;
+  background-image:
+    radial-gradient(60rem 40rem at 70% -10%, rgba(16, 185, 129, 0.08), transparent 70%),
+    radial-gradient(50rem 40rem at 0% 0%, rgba(99, 102, 241, 0.06), transparent 70%);
+  background-attachment: fixed;
+}
+
+/* thin subtle scrollbar */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { @apply rounded-full bg-neutral-800; }
+::-webkit-scrollbar-thumb:hover { @apply bg-neutral-700; }
+
+/* number counters + mono bits */
+.tabular { font-variant-numeric: tabular-nums; }

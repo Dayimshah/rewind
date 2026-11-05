@@ -1,162 +1,143 @@
-"use client";
+import Link from "next/link";
+import {
+  Crosshair,
+  ShieldCheck,
+  RefreshCw,
+  CheckCircle2,
+  ArrowRight,
+} from "lucide-react";
+import { Card, Button, Stat, GithubIcon } from "@/components/ui";
 
-import { useRouter } from "next/navigation";
-import { useState } from "react";
-import { api, type Plan, type CreateBody } from "@/lib/api";
-import { StatusBadge } from "@/components/Badges";
+const GUARANTEES = [
+  {
+    icon: Crosshair,
+    title: "Precise scope",
+    body: "Computes the minimal set of partitions to reprocess from source watermarks and the requested change — and skips anything the live stream currently owns.",
+  },
+  {
+    icon: ShieldCheck,
+    title: "Stream-safe isolation",
+    body: "Reprocessing happens in staging. The recent 'hot window' the live stream is still writing never gets touched, so a backfill can't collide with ingestion.",
+  },
+  {
+    icon: RefreshCw,
+    title: "Idempotent publication",
+    body: "Reprocessing a partition twice yields the same result. Retries are no-ops, and a crash mid-publish converges on re-run via the publish ledger.",
+  },
+  {
+    icon: CheckCircle2,
+    title: "Proof before publish",
+    body: "A DuckDB reconciliation (row counts, key-set diff, control totals) gates the atomic swap. If the numbers don't check out, nothing goes live.",
+  },
+];
 
-const REASON_HINT: Record<string, string> = {
-  never_published: "no prior publish at this transform",
-  late_data: "raw changed after last publish",
-  in_hot_window: "owned by live stream — never touched",
-  no_raw_data: "nothing to reprocess",
-  already_published: "already correct (idempotent skip)",
-  out_of_range: "outside requested range",
-};
-
-export default function PlannerPage() {
-  const router = useRouter();
-  const [form, setForm] = useState<CreateBody>({
-    table: "fct_revenue",
-    range_start: "2026-09-20",
-    range_end: "2026-11-02",
-    transform_version: "v7",
-  });
-  const [plan, setPlan] = useState<Plan | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-
-  const set = (k: keyof CreateBody) => (e: React.ChangeEvent<HTMLInputElement>) =>
-    setForm({ ...form, [k]: e.target.value });
-
-  async function preview() {
-    setError(null);
-    setBusy(true);
-    try {
-      setPlan(await api.plan(form));
-    } catch (e) {
-      setError(String(e));
-      setPlan(null);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function createAndRun() {
-    setError(null);
-    setBusy(true);
-    try {
-      const { backfill_id } = await api.createBackfill(form);
-      await api.run(backfill_id);
-      router.push(`/runs/${backfill_id}`);
-    } catch (e) {
-      setError(String(e));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  const included = plan?.included.length ?? 0;
-  const skipped = plan ? plan.decisions.length - included : 0;
-
+export default function Overview() {
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold">Scope Planner</h1>
-        <p className="mt-1 text-sm text-neutral-400">
-          Preview exactly which partitions a backfill would reprocess before touching any data.
+    <div className="space-y-16">
+      {/* hero */}
+      <section className="pt-6">
+        <p className="mb-3 inline-flex items-center rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-1 text-xs font-medium text-emerald-300">
+          Backfill orchestration · correctness-first
         </p>
-      </div>
-
-      <div className="grid grid-cols-1 gap-4 rounded-lg border border-neutral-800 bg-neutral-900/40 p-5 sm:grid-cols-4">
-        <Field label="Table">
-          <input className="inp" value={form.table} onChange={set("table")} />
-        </Field>
-        <Field label="Start (inclusive)">
-          <input className="inp" type="date" value={form.range_start} onChange={set("range_start")} />
-        </Field>
-        <Field label="End (inclusive)">
-          <input className="inp" type="date" value={form.range_end} onChange={set("range_end")} />
-        </Field>
-        <Field label="Transform version">
-          <input className="inp" value={form.transform_version} onChange={set("transform_version")} />
-        </Field>
-      </div>
-
-      <div className="flex gap-3">
-        <button className="btn-secondary" onClick={preview} disabled={busy}>
-          {busy ? "…" : "Preview scope"}
-        </button>
-        <button className="btn-primary" onClick={createAndRun} disabled={busy}>
-          Create &amp; run backfill
-        </button>
-      </div>
-
-      {error && (
-        <div className="rounded border border-red-800 bg-red-950/50 px-4 py-3 text-sm text-red-300">
-          {error}
+        <h1 className="max-w-3xl text-4xl font-semibold leading-tight tracking-tight text-neutral-50 sm:text-5xl">
+          Reprocess historical data without
+          <span className="text-emerald-400"> double-counting</span>,
+          with a check before anything goes live.
+        </h1>
+        <p className="mt-5 max-w-2xl text-lg text-neutral-400">
+          Most teams backfill by hand-rerunning a month of ingestion and hoping for the best.
+          Rewind makes it a boring, safe operation: it figures out exactly which partitions need
+          rework, reruns them in isolation, proves the result against what&apos;s already published,
+          and only then swaps the corrected data in.
+        </p>
+        <div className="mt-8 flex flex-wrap gap-3">
+          <Link href="/planner">
+            <Button>
+              Open the Planner <ArrowRight className="h-4 w-4" />
+            </Button>
+          </Link>
+          <a href="https://github.com/Dayimshah/rewind" target="_blank" rel="noreferrer">
+            <Button variant="outline">
+              <GithubIcon className="h-4 w-4" /> View the code
+            </Button>
+          </a>
         </div>
-      )}
+      </section>
 
-      {plan && (
-        <div className="space-y-4">
-          <div className="flex flex-wrap items-center gap-4 text-sm">
-            <span className="rounded bg-emerald-600/20 px-3 py-1 text-emerald-300">
-              {included} to reprocess
-            </span>
-            <span className="rounded bg-neutral-700/40 px-3 py-1 text-neutral-300">
-              {skipped} skipped
-            </span>
-            <span className="text-neutral-500">
-              hot-window cutoff {plan.hot_window_cutoff}
-            </span>
-          </div>
-
-          <div className="overflow-hidden rounded-lg border border-neutral-800">
-            <table className="w-full text-sm">
-              <thead className="bg-neutral-900 text-left text-neutral-400">
-                <tr>
-                  <th className="px-4 py-2">Partition</th>
-                  <th className="px-4 py-2">Action</th>
-                  <th className="px-4 py-2">Reason</th>
-                </tr>
-              </thead>
-              <tbody>
-                {plan.decisions.map((d) => (
-                  <tr key={d.partition} className="border-t border-neutral-800">
-                    <td className="px-4 py-2 font-mono text-neutral-300">{d.partition}</td>
-                    <td className="px-4 py-2">
-                      <StatusBadge status={d.action === "include" ? "staged" : "pending"} />
-                    </td>
-                    <td className="px-4 py-2 text-neutral-400">
-                      {d.reason}
-                      <span className="ml-2 text-xs text-neutral-600">
-                        {REASON_HINT[d.reason]}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+      {/* stats */}
+      <Card className="px-6 py-8">
+        <div className="grid grid-cols-2 gap-6 sm:grid-cols-4">
+          <Stat value="4" label="correctness guarantees" />
+          <Stat value="40+" label="tests (idempotency, faults)" />
+          <Stat value="2" label="publish backends" />
+          <Stat value="0" label="invented metrics" />
         </div>
-      )}
+      </Card>
 
-      <style>{`
-        .inp { width:100%; border-radius:0.375rem; border:1px solid #333; background:#111; padding:0.5rem 0.75rem; font-size:0.875rem; }
-        .btn-primary { border-radius:0.375rem; background:#059669; padding:0.5rem 1rem; font-size:0.875rem; font-weight:500; }
-        .btn-primary:disabled { opacity:0.5; }
-        .btn-secondary { border-radius:0.375rem; border:1px solid #333; padding:0.5rem 1rem; font-size:0.875rem; }
-      `}</style>
+      {/* guarantees */}
+      <section className="space-y-6">
+        <div>
+          <h2 className="text-xl font-semibold text-neutral-100">What it actually enforces</h2>
+          <p className="mt-1 text-sm text-neutral-500">
+            Four properties the system guarantees — not hopes for.
+          </p>
+        </div>
+        <div className="grid gap-4 sm:grid-cols-2">
+          {GUARANTEES.map((g) => (
+            <Card key={g.title} className="p-5">
+              <div className="flex items-start gap-4">
+                <div className="rounded-lg bg-emerald-500/10 p-2.5 text-emerald-400 ring-1 ring-inset ring-emerald-500/20">
+                  <g.icon className="h-5 w-5" />
+                </div>
+                <div>
+                  <h3 className="font-medium text-neutral-100">{g.title}</h3>
+                  <p className="mt-1.5 text-sm leading-relaxed text-neutral-400">{g.body}</p>
+                </div>
+              </div>
+            </Card>
+          ))}
+        </div>
+      </section>
+
+      {/* how it flows */}
+      <section className="space-y-6">
+        <div>
+          <h2 className="text-xl font-semibold text-neutral-100">How a backfill flows</h2>
+          <p className="mt-1 text-sm text-neutral-500">
+            Each step is gated by the one before it — you can&apos;t publish what didn&apos;t reconcile.
+          </p>
+        </div>
+        <Card className="p-6">
+          <div className="flex flex-wrap items-center gap-3 text-sm">
+            {["Plan scope", "Reprocess → staging", "Reconcile", "Gate", "Atomic publish"].map(
+              (step, i, arr) => (
+                <div key={step} className="flex items-center gap-3">
+                  <span className="rounded-lg border border-neutral-800 bg-neutral-900/60 px-3 py-1.5 text-neutral-200">
+                    {step}
+                  </span>
+                  {i < arr.length - 1 && <ArrowRight className="h-4 w-4 text-neutral-600" />}
+                </div>
+              ),
+            )}
+          </div>
+        </Card>
+      </section>
+
+      {/* honest note — matches the portfolio's voice */}
+      <section>
+        <Card className="border-neutral-800/60 p-6">
+          <h2 className="text-sm font-semibold uppercase tracking-wider text-neutral-400">
+            Honest about the edges
+          </h2>
+          <p className="mt-3 max-w-3xl text-sm leading-relaxed text-neutral-400">
+            This is a live demo on a free tier, so the API may take ~30s to wake on first load,
+            and the data plane is seeded fresh on each boot. The default &quot;atomic swap&quot; is a
+            pointer file (there&apos;s also a real Apache Iceberg backend behind a flag), and the scope
+            planner assumes a single source dependency per table. Knowing where the instrument
+            stops being exact is part of the point.
+          </p>
+        </Card>
+      </section>
     </div>
-  );
-}
-
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <label className="block">
-      <span className="mb-1 block text-xs uppercase tracking-wide text-neutral-500">{label}</span>
-      {children}
-    </label>
   );
 }
