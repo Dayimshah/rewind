@@ -1,0 +1,36 @@
+# Render blueprint for the Rewind API + Postgres control plane (free tier).
+#
+# Deploy: push to GitHub, then on render.com "New +" -> "Blueprint" -> pick this
+# repo. Render provisions the Postgres DB and the Docker web service, wires
+# DATABASE_URL, runs migrations + seeds a demo backfill on boot, and gives you a
+# public API URL. Put that URL in the frontend's NEXT_PUBLIC_REWIND_API on Vercel.
+#
+# Note: the free web-service tier sleeps after ~15 min idle and cold-starts in
+# ~30-60s. The frontend's demo-mode fallback covers that window gracefully.
+services:
+  - type: web
+    name: rewind-api
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: rewind-db
+          property: connectionString
+      - key: DATA_ROOT
+        value: /app/data
+      - key: RUN_MIGRATIONS_ON_START
+        value: "1"
+      - key: SEED_ON_START
+        value: "1"
+      # Allow the Vercel frontend to call this API. Set to your Vercel URL,
+      # or "*" for a fully public demo. (Comma-separate multiple origins.)
+      - key: CORS_ORIGINS
+        value: "*"
+
+databases:
+  - name: rewind-db
+    plan: free
+    postgresMajorVersion: "16"
