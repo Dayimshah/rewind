@@ -1,0 +1,60 @@
+# Rewind — Phase 1 lean local stack (Week 1).
+# Postgres control plane + FastAPI API skeleton.
+#
+# Ports are deliberately non-default (5440 / 8010) to avoid clashing with
+# other local projects, matching .env.
+services:
+  postgres:
+    image: postgres:16
+    container_name: rewind-postgres
+    # wal_level=logical is required for Debezium CDC (Phase 2). Harmless for the
+    # Phase-1 lean stack — it only enables logical decoding of the WAL.
+    command:
+      - "postgres"
+      - "-c"
+      - "wal_level=logical"
+      - "-c"
+      - "max_replication_slots=4"
+      - "-c"
+      - "max_wal_senders=4"
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-rewind}
+      POSTGRES_USER: ${POSTGRES_USER:-rewind}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-rewind_dev}
+    ports:
+      - "${POSTGRES_PORT:-5440}:5432"
+    volumes:
+      - rewind_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-rewind} -d ${POSTGRES_DB:-rewind}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: rewind-api
+    command: >
+      uvicorn rewind.api.main:app
+      --host 0.0.0.0
+      --port 8010
+    environment:
+      # Inside the compose network the DB host is the service name, not localhost.
+      DATABASE_URL: postgresql://${POSTGRES_USER:-rewind}:${POSTGRES_PASSWORD:-rewind_dev}@postgres:5432/${POSTGRES_DB:-rewind}
+      API_HOST: 0.0.0.0
+      API_PORT: "8010"
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      DATA_ROOT: /app/data
+      HOT_WINDOW_DAYS: ${HOT_WINDOW_DAYS:-2}
+    ports:
+      - "${API_PORT:-8010}:8010"
+    volumes:
+      - ./data:/app/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  rewind_pgdata:
