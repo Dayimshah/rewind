@@ -25,7 +25,7 @@ from rewind.config import get_settings
 from rewind.dataplane import partitions as dp
 from rewind.db.client import Database
 from rewind.db.migrate import run_migrations
-from rewind.registry.registry import get_table, register_table
+from rewind.registry.registry import register_table
 from rewind.transform import generate_rows
 
 _DEMO_TABLE = "fct_revenue"
@@ -39,21 +39,26 @@ def _truthy(name: str, default: str = "1") -> bool:
 
 
 async def _seed_demo(db: Database) -> None:
-    """Register fct_revenue + run one backfill to 'published' (idempotent)."""
+    """Make the deployed demo self-consistent on every boot.
+
+    Two separate concerns, because on ephemeral-disk hosts (Render free tier)
+    the Postgres rows persist across restarts but the Parquet on local disk does
+    NOT:
+
+      1. Raw partitions must exist ON DISK — otherwise the Planner correctly but
+         unhelpfully reports "no_raw_data" for everything. We regenerate any
+         missing raw files every boot (deterministic, so it's the same data).
+      2. The demo backfill row + publish only needs to happen ONCE (it lives in
+         Postgres and survives restarts), so that part stays guarded.
+    """
     settings = get_settings()
     settings.ensure_dirs()
 
-    # Already seeded this boot? (registered + has at least one backfill)
-    existing = await get_table(db, _DEMO_TABLE)
-    has_backfill = await db.fetchval(
-        "SELECT 1 FROM backfills WHERE table_name=$1 LIMIT 1", _DEMO_TABLE
-    )
-    if existing is not None and has_backfill:
-        return
-
     await register_table(db, _DEMO_TABLE, hot_window_days=2)
-
     start = _DEMO_END - dt.timedelta(days=_DEMO_DAYS - 1)
+
+    # (1) Always make sure the raw partitions are on disk so the Planner has
+    # something real to plan against — regardless of DB state.
     for i in range(_DEMO_DAYS):
         day = start + dt.timedelta(days=i)
         if not dp.partition_exists(settings.raw_root, _DEMO_TABLE, day):
@@ -61,6 +66,14 @@ async def _seed_demo(db: Database) -> None:
                 settings.raw_root, _DEMO_TABLE, day,
                 generate_rows(_DEMO_TABLE, day, seed="raw"),
             )
+
+    # (2) Only run the demo backfill through to 'published' if we haven't
+    # already (the control-plane rows persist, so this is a one-time thing).
+    has_backfill = await db.fetchval(
+        "SELECT 1 FROM backfills WHERE table_name=$1 LIMIT 1", _DEMO_TABLE
+    )
+    if has_backfill:
+        return
 
     bid, _ = await orch.create_backfill(
         db, _DEMO_TABLE, start, _DEMO_END, "v7", today=_SEED_TODAY
